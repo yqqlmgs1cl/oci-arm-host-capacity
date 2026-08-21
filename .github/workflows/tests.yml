@@ -1,9 +1,9 @@
 name: OCI ARM Instance Forge
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:          # 支持手动触发
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/15 * * * *'    # 每 15 分钟跑一次（比 10 分钟更稳，减少 429）
 
 jobs:
   run-oci-script:
@@ -14,13 +14,13 @@ jobs:
           bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- --accept-all-defaults
           echo "/home/runner/bin" >> $GITHUB_PATH
 
-      - name: Configure OCI CLI & Launch
+      - name: Configure OCI CLI & Launch Instance
         run: |
           set -e
 
           mkdir -p ~/.oci
 
-          # 关键：使用 <<-EOF 去掉缩进，避免 config 文件带空格
+          # 使用 <<-EOF 去掉缩进，保证 config 和私钥格式正确
           cat <<-EOF > ~/.oci/config
           [DEFAULT]
           user=${{ secrets.OCI_USER_OCID }}
@@ -30,27 +30,22 @@ jobs:
           region=${{ secrets.OCI_REGION }}
           EOF
 
-          # 私钥也用 <<-EOF 去掉缩进
           cat <<-EOF > ~/.oci/oci_api_key.pem
           ${{ secrets.OCI_PRIVATE_KEY }}
           EOF
 
-          chmod 600 ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/config
+          chmod 600 ~/.oci/oci_api_key.pem
 
           export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
 
-          echo "===== 检查 config 文件内容（脱敏）====="
-          cat ~/.oci/config
-          echo "===== 检查私钥文件是否存在且权限正确 ====="
-          ls -l ~/.oci/
-          echo "===== 检查私钥是否包含 BEGIN/END ====="
-          head -n 1 ~/.oci/oci_api_key.pem
-          tail -n 1 ~/.oci/oci_api_key.pem
+          echo "========================================"
+          echo "开始尝试启动 ARM 实例 (使用原有 Boot Volume)"
+          echo "时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          echo "========================================"
 
-          echo "Sending request via OCI CLI (Pure Boot Volume Mode)..."
-
-          # 使用显式 source-details + shape-config（更稳妥）
+          # 启动实例（去掉 --debug，减少日志干扰）
+          # 使用 1 OCPU + 6GB 更容易抢到容量
           oci compute instance launch \
             --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" \
             --availability-domain "${{ secrets.OCI_AVAILABILITY_DOMAIN }}" \
@@ -60,18 +55,19 @@ jobs:
             --source-details '{"sourceType":"bootVolume","bootVolumeId":"'${{ secrets.OCI_BOOT_VOLUME_ID }}'"}' \
             --assign-public-ip true \
             --display-name "arm-revive-$(date +%Y%m%d-%H%M%S)" \
-            --debug > /tmp/oci_res.json 2>&1 || true
+            > /tmp/oci_res.json 2>&1 || true
 
-          echo "===== 完整输出 ====="
-          cat /tmp/oci_res.json
-
-          # 解析结果
+          # 结果判断
           if grep -q "Out of host capacity" /tmp/oci_res.json; then
-            echo "Out of host capacity (Capacity full, will retry next run)."
-          elif grep -q "TooManyRequests" /tmp/oci_res.json; then
-            echo "Too Many Requests (Rate limit, will retry next run)."
+            echo "❌ Out of host capacity（容量已满，下次继续重试）"
+          elif grep -q "TooManyRequests\|429" /tmp/oci_res.json; then
+            echo "⚠️  Too Many Requests（触发限流，下次继续重试）"
           elif grep -q '"id": "ocid1.instance' /tmp/oci_res.json; then
-            echo "SUCCESS! Instance created successfully!"
+            echo "✅ SUCCESS! 实例创建成功！"
+            echo "----------------------------------------"
+            cat /tmp/oci_res.json
+            echo "----------------------------------------"
           else
-            echo "Failed. Please check the full output above."
+            echo "❓ 未知错误，完整输出如下："
+            cat /tmp/oci_res.json
           fi
