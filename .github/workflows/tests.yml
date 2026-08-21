@@ -3,8 +3,8 @@ name: OCI ARM Instance Forge
 on:
   workflow_dispatch:
   schedule:
-    # 每 2 小时运行一次（避开整点）
-    - cron: '15 */2 * * *'
+    # 每 30 分钟一次，尽量避开整点（:00 和 :30）
+    - cron: '7,37 * * * *'
 
 jobs:
   run-oci-script:
