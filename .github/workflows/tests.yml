@@ -46,15 +46,9 @@ jobs:
         run: |
           echo "$OCI_PRIVATE_KEY" > /tmp/oci_api_key.pem
           
-          # 清理变量末尾可能存在的换行符
+          # 清理 SSH 公钥可能的换行符
           CLEAN_SSH_KEY=$(echo "$OCI_SSH_PUBLIC_KEY" | tr -d '\r\n')
-          CLEAN_AD=$(echo "$OCI_AVAILABILITY_DOMAIN" | tr -d '\r\n')
           export OCI_SSH_PUBLIC_KEY="$CLEAN_SSH_KEY"
-          export OCI_AVAILABILITY_DOMAIN="$CLEAN_AD"
-          
-          # 自动修正 OciConfig.php 中的类型限制，允许 imageId 为空/null
-          sed -i 's/string $imageId/string $imageId = ""/g' src/OciConfig.php || true
-          sed -i 's/?string $imageId/string $imageId = ""/g' src/OciConfig.php || true
           
           php index.php
         env:
@@ -64,10 +58,8 @@ jobs:
           OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
           OCI_PRIVATE_KEY_FILENAME: /tmp/oci_api_key.pem
           OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
-          OCI_IMAGE_ID: ""
+          OCI_IMAGE_ID: ${{ secrets.OCI_IMAGE_ID }}
           OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
-          OCI_BOOT_VOLUME_ID: ${{ secrets.OCI_BOOT_VOLUME_ID }}
-          OCI_BOOT_VOLUME_TYPE: ${{ secrets.OCI_BOOT_VOLUME_TYPE }}
           OCI_AVAILABILITY_DOMAIN: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}
           OCI_OCPUS: ${{ secrets.OCI_OCPUS }}
           OCI_MEMORY_IN_GBS: ${{ secrets.OCI_MEMORY_IN_GBS }}
