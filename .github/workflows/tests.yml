@@ -1,9 +1,11 @@
 name: OCI ARM Instance Forge
 
 on:
-  workflow_dispatch:          # 支持手动触发
+  workflow_dispatch:
   schedule:
-    - cron: '*/15 * * * *'    # 每 15 分钟跑一次（比 10 分钟更稳，减少 429）
+    # 每小时的 3、8、13、18、23、28、33、38、43、48、53、58 分运行
+    # 刻意避开整点（:00）和半点（:30），减少高峰延迟
+    - cron: '3,8,13,18,23,28,33,38,43,48,53,58 * * * *'
 
 jobs:
   run-oci-script:
@@ -20,7 +22,6 @@ jobs:
 
           mkdir -p ~/.oci
 
-          # 使用 <<-EOF 去掉缩进，保证 config 和私钥格式正确
           cat <<-EOF > ~/.oci/config
           [DEFAULT]
           user=${{ secrets.OCI_USER_OCID }}
@@ -40,12 +41,10 @@ jobs:
           export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
 
           echo "========================================"
-          echo "开始尝试启动 ARM 实例 (使用原有 Boot Volume)"
+          echo "开始尝试启动 ARM 实例"
           echo "时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo "========================================"
 
-          # 启动实例（去掉 --debug，减少日志干扰）
-          # 使用 1 OCPU + 6GB 更容易抢到容量
           oci compute instance launch \
             --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" \
             --availability-domain "${{ secrets.OCI_AVAILABILITY_DOMAIN }}" \
@@ -57,17 +56,16 @@ jobs:
             --display-name "arm-revive-$(date +%Y%m%d-%H%M%S)" \
             > /tmp/oci_res.json 2>&1 || true
 
-          # 结果判断
           if grep -q "Out of host capacity" /tmp/oci_res.json; then
-            echo "❌ Out of host capacity（容量已满，下次继续重试）"
+            echo "❌ Out of host capacity（容量已满，继续重试）"
           elif grep -q "TooManyRequests\|429" /tmp/oci_res.json; then
-            echo "⚠️  Too Many Requests（触发限流，下次继续重试）"
+            echo "⚠️  Too Many Requests（触发限流）"
           elif grep -q '"id": "ocid1.instance' /tmp/oci_res.json; then
             echo "✅ SUCCESS! 实例创建成功！"
             echo "----------------------------------------"
             cat /tmp/oci_res.json
             echo "----------------------------------------"
           else
-            echo "❓ 未知错误，完整输出如下："
+            echo "❓ 未知错误："
             cat /tmp/oci_res.json
           fi
