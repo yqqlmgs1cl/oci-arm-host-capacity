@@ -42,8 +42,8 @@ jobs:
           region=${OCI_REGION}
           EOF
 
-          # 写入私钥
-          echo "$OCI_PRIVATE_KEY" > ~/.oci/oci_api_key.pem
+          # 写入私钥（使用 printf 更安全，避免换行符问题）
+          printf '%s\n' "$OCI_PRIVATE_KEY" > ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/config ~/.oci/oci_api_key.pem
 
           cat > launch.py << 'EOF'
