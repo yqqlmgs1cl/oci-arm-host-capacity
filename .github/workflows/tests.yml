@@ -59,6 +59,11 @@ jobs:
           print(f"SSH Key: {ssh_key[:20]}...{ssh_key[-15:] if len(ssh_key)>30 else '未配置'}")
           print("--------------------")
 
+          # 检查 Subnet ID 格式
+          if not subnet_id.startswith("ocid1.subnet"):
+              print(" 错误：OCI_SUBNET_ID 填写的不是 Subnet OCID（必须以 ocid1.subnet 开头，不能是 ocid1.vcn）！")
+              exit(1)
+
           # 动态选择 Source Details
           source_details = None
           if boot_volume_id:
@@ -72,7 +77,7 @@ jobs:
                   image_id=image_id
               )
           else:
-              print(" Error: OCI_BOOT_VOLUME_ID 和 OCI_IMAGE_ID 均未检测到有效值！")
+              print(" 错误：OCI_BOOT_VOLUME_ID 和 OCI_IMAGE_ID 均未检测到有效值！")
               exit(1)
 
           # 构造 VNIC Details
