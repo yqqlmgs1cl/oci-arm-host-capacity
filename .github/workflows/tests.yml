@@ -25,7 +25,7 @@ jobs:
           import oci
 
           # 写入私钥
-          private_key = os.environ.get("OCI_PRIVATE_KEY")
+          private_key = os.environ.get("OCI_PRIVATE_KEY", "")
           with open("/tmp/oci_api_key.pem", "w") as f:
               f.write(private_key)
 
@@ -39,14 +39,52 @@ jobs:
 
           compute_client = oci.core.ComputeClient(config)
 
-          # 基础配置
+          # 读取并清洗环境变量
           shape = "VM.Standard.A1.Flex"
           ocpus = float(os.environ.get("OCI_OCPUS", "4"))
           memory_in_gbs = float(os.environ.get("OCI_MEMORY_IN_GBS", "24"))
-          ad = os.environ.get("OCI_AVAILABILITY_DOMAIN")
-          compartment_id = os.environ.get("OCI_TENANCY_ID")
-          subnet_id = os.environ.get("OCI_SUBNET_ID")
-          ssh_key = os.environ.get("OCI_SSH_PUBLIC_KEY", "").strip()
+          ad = (os.environ.get("OCI_AVAILABILITY_DOMAIN") or "").strip()
+          compartment_id = (os.environ.get("OCI_TENANCY_ID") or "").strip()
+          subnet_id = (os.environ.get("OCI_SUBNET_ID") or "").strip()
+          ssh_key = (os.environ.get("OCI_SSH_PUBLIC_KEY") or "").strip()
+
+          boot_volume_id = (os.environ.get("OCI_BOOT_VOLUME_ID") or "").strip()
+          image_id = (os.environ.get("OCI_IMAGE_ID") or "").strip()
+
+          print("--- 诊断参数检查 ---")
+          print(f"AD: {ad}")
+          print(f"Subnet ID: {subnet_id[:15]}...{subnet_id[-5:] if len(subnet_id)>20 else ''}")
+          print(f"Boot Volume ID: {boot_volume_id[:15]}...{boot_volume_id[-5:] if len(boot_volume_id)>20 else '未配置'}")
+          print(f"Image ID: {image_id[:15]}...{image_id[-5:] if len(image_id)>20 else '未配置'}")
+          print(f"SSH Key: {ssh_key[:20]}...{ssh_key[-15:] if len(ssh_key)>30 else '未配置'}")
+          print("--------------------")
+
+          # 动态选择 Source Details
+          source_details = None
+          if boot_volume_id:
+              print("使用【引导卷 (Boot Volume)】模式创建...")
+              source_details = oci.core.models.InstanceSourceViaBootVolumeDetails(
+                  boot_volume_id=boot_volume_id
+              )
+          elif image_id:
+              print("使用【镜像 (Image)】模式创建...")
+              source_details = oci.core.models.InstanceSourceViaImageDetails(
+                  image_id=image_id
+              )
+          else:
+              print(" Error: OCI_BOOT_VOLUME_ID 和 OCI_IMAGE_ID 均未检测到有效值！")
+              exit(1)
+
+          # 构造 VNIC Details
+          vnic_details = oci.core.models.CreateVnicDetails(
+              subnet_id=subnet_id,
+              assign_public_ip=True
+          )
+
+          # 构造 Metadata
+          metadata = {}
+          if ssh_key:
+              metadata["ssh_authorized_keys"] = ssh_key
 
           launch_details = oci.core.models.LaunchInstanceDetails(
               compartment_id=compartment_id,
@@ -56,27 +94,10 @@ jobs:
                   ocpus=ocpus,
                   memory_in_gbs=memory_in_gbs
               ),
-              create_vnic_details=oci.core.models.CreateVnicDetails(
-                  subnet_id=subnet_id,
-                  assign_public_ip=True
-              ),
-              metadata={
-                  "ssh_authorized_keys": ssh_key
-              }
+              create_vnic_details=vnic_details,
+              source_details=source_details,
+              metadata=metadata if metadata else None
           )
-
-          # 判断是用引导卷还是镜像
-          boot_volume_id = os.environ.get("OCI_BOOT_VOLUME_ID")
-          image_id = os.environ.get("OCI_IMAGE_ID")
-
-          if boot_volume_id and boot_volume_id.strip():
-              launch_details.source_details = oci.core.models.InstanceSourceViaBootVolumeDetails(
-                  boot_volume_id=boot_volume_id.strip()
-              )
-          elif image_id and image_id.strip():
-              launch_details.source_details = oci.core.models.InstanceSourceViaImageDetails(
-                  image_id=image_id.strip()
-              )
 
           try:
               print("Sending request to Oracle Cloud API...")
