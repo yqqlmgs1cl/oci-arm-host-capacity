@@ -34,17 +34,16 @@ jobs:
 
           export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
 
-          echo "Sending request via OCI CLI (Boot Volume + 2C12G Spec)..."
+          echo "Sending request via OCI CLI (Boot Volume via source-details)..."
           
-          # 使用纯 CLI Flag 形式，剔除复杂的 JSON Payload 解析
+          # 使用 --source-details 传递合规的 JSON 对象，确保 API 能正确识别 bootVolume 模式
           oci compute instance launch \
             --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" \
             --availability-domain "${{ secrets.OCI_AVAILABILITY_DOMAIN }}" \
             --shape "VM.Standard.A1.Flex" \
-            --ocpus 2 \
-            --memory-in-gbs 12 \
+            --shape-config '{"ocpus":2,"memoryInGBs":12}' \
             --subnet-id "${{ secrets.OCI_SUBNET_ID }}" \
-            --source-boot-volume-id "${{ secrets.OCI_BOOT_VOLUME_ID }}" \
+            --source-details '{"sourceType":"bootVolume","bootVolumeId":"'${{ secrets.OCI_BOOT_VOLUME_ID }}'"}' \
             --assign-public-ip true > /tmp/oci_res.json 2>&1 || true
 
           # 解析运行结果
