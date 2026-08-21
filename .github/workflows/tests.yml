@@ -9,111 +9,49 @@ jobs:
   run-oci-script:
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install OCI SDK
+      - name: Install OCI CLI
         run: |
-          pip install oci
+          bash -c "$(curl -L https://raw.githubusercontent.com/oracle/oci-cli/master/scripts/install/install.sh)" -- --accept-all-defaults
+          echo "/home/runner/bin" >> $GITHUB_PATH
 
-      - name: Run Auto Launch Script
+      - name: Configure OCI CLI & Launch
         run: |
-          cat << 'EOF' > launch.py
-          import os
-          import sys
-          import oci
-
-          # 写入私钥
-          private_key = os.environ.get("OCI_PRIVATE_KEY", "").strip()
-          with open("/tmp/oci_api_key.pem", "w") as f:
-              f.write(private_key)
-
-          config = {
-              "user": os.environ.get("OCI_USER_ID", "").strip(),
-              "key_file": "/tmp/oci_api_key.pem",
-              "fingerprint": os.environ.get("OCI_KEY_FINGERPRINT", "").strip(),
-              "tenancy": os.environ.get("OCI_TENANCY_ID", "").strip(),
-              "region": os.environ.get("OCI_REGION", "").strip()
-          }
-
-          compute_client = oci.core.ComputeClient(config)
-
-          # 提取环境变量
-          shape = "VM.Standard.A1.Flex"
-          ocpus = float(os.environ.get("OCI_OCPUS", "4"))
-          memory_in_gbs = float(os.environ.get("OCI_MEMORY_IN_GBS", "24"))
-          
-          ad = os.environ.get("OCI_AVAILABILITY_DOMAIN", "").strip()
-          compartment_id = os.environ.get("OCI_TENANCY_ID", "").strip()
-          subnet_id = os.environ.get("OCI_SUBNET_ID", "").strip()
-          boot_volume_id = os.environ.get("OCI_BOOT_VOLUME_ID", "").strip()
-
-          # 1. 检查是否存在正在运行的 ARM 实例
-          try:
-              print("正在检查是否已存在实例...")
-              instances = compute_client.list_instances(
-                  compartment_id=compartment_id,
-                  lifecycle_state="RUNNING"
-              ).data
-              arm_instances = [i for i in instances if i.shape == shape]
-              if arm_instances:
-                  print(f" 检测到已存在运行中的 ARM 实例 ({arm_instances[0].display_name})，停止继续开机！")
-                  sys.exit(0)
-          except Exception as e:
-              print(f" 实例状态检查跳过: {str(e)}")
-
-          # 2. 直接构造纯字典格式的请求 Payload（解决 SDK 自动转 JSON 时的类型丢包）
-          payload_dict = {
-              "compartmentId": compartment_id,
-              "availabilityDomain": ad,
-              "shape": shape,
-              "shapeConfig": {
-                  "ocpus": ocpus,
-                  "memoryInGBs": memory_in_gbs
-              },
-              "createVnicDetails": {
-                  "subnetId": subnet_id,
-                  "assignPublicIp": True
-              },
-              "sourceDetails": {
-                  "sourceType": "bootVolume",
-                  "bootVolumeId": boot_volume_id
-              }
-          }
-
-          # 3. 将字典注入 SDK 对应的 LaunchInstanceDetails 容器中
-          launch_details = oci.core.models.LaunchInstanceDetails()
-          for k, v in oci.util.to_dict(payload_dict).items():
-              setattr(launch_details, k, v)
-
-          # 4. 发送开机请求
-          try:
-              print("Sending request to Oracle Cloud API...")
-              response = compute_client.launch_instance(launch_details)
-              print(" SUCCESS! Instance created successfully!")
-              print(f"Instance OCID: {response.data.id}")
-          except oci.exceptions.ServiceError as e:
-              if e.status == 500 or "Out of host capacity" in str(e.message):
-                  print(" Out of host capacity (Capacity full, will retry next run).")
-              elif e.status == 429 or "TooManyRequests" in str(e.code):
-                  print(" Too Many Requests (API Rate Limit hit, will retry next run).")
-              else:
-                  print(f" OCI Service Error [{e.status}]: {e.code} - {e.message}")
-          except Exception as e:
-              print(f" Unexpected Error: {str(e)}")
+          mkdir -p ~/.oci
+          cat << EOF > ~/.oci/config
+          [DEFAULT]
+          user=${{ secrets.OCI_USER_OCID }}
+          fingerprint=${{ secrets.OCI_KEY_FINGERPRINT }}
+          key_file=~/.oci/oci_api_key.pem
+          tenancy=${{ secrets.OCI_TENANCY_OCID }}
+          region=${{ secrets.OCI_REGION }}
           EOF
 
-          python launch.py
-        env:
-          OCI_REGION: ${{ secrets.OCI_REGION }}
-          OCI_USER_ID: ${{ secrets.OCI_USER_OCID }}
-          OCI_TENANCY_ID: ${{ secrets.OCI_TENANCY_OCID }}
-          OCI_KEY_FINGERPRINT: ${{ secrets.OCI_KEY_FINGERPRINT }}
-          OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
-          OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
-          OCI_BOOT_VOLUME_ID: ${{ secrets.OCI_BOOT_VOLUME_ID }}
-          OCI_AVAILABILITY_DOMAIN: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}
-          OCI_OCPUS: ${{ secrets.OCI_OCPUS }}
-          OCI_MEMORY_IN_GBS: ${{ secrets.OCI_MEMORY_IN_GBS }}
+          cat << 'EOF' > ~/.oci/oci_api_key.pem
+          ${{ secrets.OCI_PRIVATE_KEY }}
+          EOF
+          chmod 600 ~/.oci/oci_api_key.pem
+
+          echo "Sending request via OCI CLI..."
+          
+          # 使用 OCI CLI 发起开机请求
+          oci compute instance launch \
+            --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" \
+            --availability-domain "${{ secrets.OCI_AVAILABILITY_DOMAIN }}" \
+            --shape "VM.Standard.A1.Flex" \
+            --shape-config '{"ocpus": '${{ secrets.OCI_OCPUS }}', "memory_in_gbs": '${{ secrets.OCI_MEMORY_IN_GBS }}'}' \
+            --subnet-id "${{ secrets.OCI_SUBNET_ID }}" \
+            --source-boot-volume-id "${{ secrets.OCI_BOOT_VOLUME_ID }}" \
+            --assign-public-ip true > /tmp/oci_res.json 2>&1 || true
+
+          # 解析运行结果
+          if grep -q "Out of host capacity" /tmp/oci_res.json; then
+            echo " Out of host capacity (Capacity full, will retry next run)."
+          elif grep -q "TooManyRequests" /tmp/oci_res.json; then
+            echo " Too Many Requests (Rate limit, will retry next run)."
+          elif grep -q '"id": "ocid1.instance' /tmp/oci_res.json; then
+            echo " SUCCESS! Instance created successfully!"
+            cat /tmp/oci_res.json
+          else
+            echo " OCI CLI Result:"
+            cat /tmp/oci_res.json
+          fi
