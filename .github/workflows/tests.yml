@@ -36,14 +36,16 @@ jobs:
 
           echo "Sending request via OCI CLI (Pure Boot Volume Mode)..."
           
-          # 彻底移除与 bootVolume 冲突的 --shape-config，使用最干净的 API 协议
+          # 使用原有 Boot Volume 启动实例（Flex shape 必须带 shape-config）
           oci compute instance launch \
             --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" \
             --availability-domain "${{ secrets.OCI_AVAILABILITY_DOMAIN }}" \
             --shape "VM.Standard.A1.Flex" \
+            --shape-config '{"ocpus":1,"memoryInGBs":6}' \
             --subnet-id "${{ secrets.OCI_SUBNET_ID }}" \
             --source-boot-volume-id "${{ secrets.OCI_BOOT_VOLUME_ID }}" \
-            --assign-public-ip true > /tmp/oci_res.json 2>&1 || true
+            --assign-public-ip true \
+            --display-name "arm-revive-$(date +%Y%m%d-%H%M%S)" > /tmp/oci_res.json 2>&1 || true
 
           # 解析运行结果
           if grep -q "Out of host capacity" /tmp/oci_res.json; then
