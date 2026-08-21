@@ -34,33 +34,18 @@ jobs:
 
           export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
 
-          # 构造标准的 REST Payload
-          cat << EOF > /tmp/launch_payload.json
-          {
-            "compartmentId": "${{ secrets.OCI_TENANCY_OCID }}",
-            "availabilityDomain": "${{ secrets.OCI_AVAILABILITY_DOMAIN }}",
-            "shape": "VM.Standard.A1.Flex",
-            "shapeConfig": {
-              "ocpus": 2.0,
-              "memoryInGBs": 12.0
-            },
-            "createVnicDetails": {
-              "subnetId": "${{ secrets.OCI_SUBNET_ID }}",
-              "assignPublicIp": true
-            },
-            "sourceDetails": {
-              "sourceType": "bootVolume",
-              "bootVolumeId": "${{ secrets.OCI_BOOT_VOLUME_ID }}"
-            }
-          }
-          EOF
-
-          echo "Sending raw REST Payload via OCI CLI..."
+          echo "Sending request via OCI CLI (Boot Volume + 2C12G Spec)..."
           
-          # 补充 --subnet-id 满足 CLI 客户端校验，同时通过 --from-json 发送完整配置
+          # 使用纯 CLI Flag 形式，剔除复杂的 JSON Payload 解析
           oci compute instance launch \
+            --compartment-id "${{ secrets.OCI_TENANCY_OCID }}" \
+            --availability-domain "${{ secrets.OCI_AVAILABILITY_DOMAIN }}" \
+            --shape "VM.Standard.A1.Flex" \
+            --ocpus 2 \
+            --memory-in-gbs 12 \
             --subnet-id "${{ secrets.OCI_SUBNET_ID }}" \
-            --from-json file:///tmp/launch_payload.json > /tmp/oci_res.json 2>&1 || true
+            --source-boot-volume-id "${{ secrets.OCI_BOOT_VOLUME_ID }}" \
+            --assign-public-ip true > /tmp/oci_res.json 2>&1 || true
 
           # 解析运行结果
           if grep -q "Out of host capacity" /tmp/oci_res.json; then
