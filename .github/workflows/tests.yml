@@ -98,7 +98,7 @@ jobs:
                   print(f"❓ 未知异常: {str(e)}")
 
               if i < 9:
-                  time.sleep(20)
+                  time.sleep(45)
 
           print("本轮 10 次尝试全部失败，等待下次定时任务")
           EOF
