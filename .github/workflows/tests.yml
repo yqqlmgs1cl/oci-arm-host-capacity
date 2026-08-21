@@ -51,33 +51,42 @@ jobs:
           boot_volume_id = (os.environ.get("OCI_BOOT_VOLUME_ID") or "").strip()
           image_id = (os.environ.get("OCI_IMAGE_ID") or "").strip()
 
+          # 校验 Image ID 是否被误填为了 Boot Volume ID
+          if image_id.startswith("ocid1.bootvolume"):
+              print(" 检测到 OCI_IMAGE_ID 误填了引导卷 ID，自动清理此干扰项...")
+              image_id = ""
+
           print("--- 诊断参数检查 ---")
           print(f"AD: {ad}")
           print(f"Subnet ID: {subnet_id[:15]}...{subnet_id[-5:] if len(subnet_id)>20 else ''}")
           print(f"Boot Volume ID: {boot_volume_id[:15]}...{boot_volume_id[-5:] if len(boot_volume_id)>20 else '未配置'}")
           print(f"Image ID: {image_id[:15]}...{image_id[-5:] if len(image_id)>20 else '未配置'}")
-          print(f"SSH Key: {ssh_key[:20]}...{ssh_key[-15:] if len(ssh_key)>30 else '未配置'}")
           print("--------------------")
 
           # 检查 Subnet ID 格式
           if not subnet_id.startswith("ocid1.subnet"):
-              print(" 错误：OCI_SUBNET_ID 填写的不是 Subnet OCID（必须以 ocid1.subnet 开头，不能是 ocid1.vcn）！")
+              print(" 错误：OCI_SUBNET_ID 填写的不是 Subnet OCID！")
               exit(1)
 
-          # 动态选择 Source Details
+          # 动态选择 Source Details 并控制 Metadata
           source_details = None
-          if boot_volume_id:
+          metadata = {}
+
+          if boot_volume_id and boot_volume_id.startswith("ocid1.bootvolume"):
               print("使用【引导卷 (Boot Volume)】模式创建...")
               source_details = oci.core.models.InstanceSourceViaBootVolumeDetails(
                   boot_volume_id=boot_volume_id
               )
-          elif image_id:
+              # 挂载旧引导卷时不注入 SSH Key
+          elif image_id and image_id.startswith("ocid1.image"):
               print("使用【镜像 (Image)】模式创建...")
               source_details = oci.core.models.InstanceSourceViaImageDetails(
                   image_id=image_id
               )
+              if ssh_key:
+                  metadata["ssh_authorized_keys"] = ssh_key
           else:
-              print(" 错误：OCI_BOOT_VOLUME_ID 和 OCI_IMAGE_ID 均未检测到有效值！")
+              print(" 错误：没有提供有效的 OCI_BOOT_VOLUME_ID 或 OCI_IMAGE_ID！")
               exit(1)
 
           # 构造 VNIC Details
@@ -85,11 +94,6 @@ jobs:
               subnet_id=subnet_id,
               assign_public_ip=True
           )
-
-          # 构造 Metadata
-          metadata = {}
-          if ssh_key:
-              metadata["ssh_authorized_keys"] = ssh_key
 
           launch_details = oci.core.models.LaunchInstanceDetails(
               compartment_id=compartment_id,
