@@ -45,6 +45,10 @@ jobs:
       - name: Run create instance script
         run: |
           echo "$OCI_PRIVATE_KEY" > /tmp/oci_api_key.pem
+          # 清理 SSH 公钥可能存在的换行符
+          CLEAN_SSH_KEY=$(echo "$OCI_SSH_PUBLIC_KEY" | tr -d '\r\n')
+          export OCI_SSH_PUBLIC_KEY="$CLEAN_SSH_KEY"
+          
           php index.php
         env:
           OCI_REGION: ${{ secrets.OCI_REGION }}
@@ -55,7 +59,6 @@ jobs:
           OCI_PRIVATE_KEY: ${{ secrets.OCI_PRIVATE_KEY }}
           OCI_SUBNET_ID: ${{ secrets.OCI_SUBNET_ID }}
           OCI_BOOT_VOLUME_ID: ${{ secrets.OCI_BOOT_VOLUME_ID }}
-          OCI_BOOT_VOLUME_TYPE: ${{ secrets.OCI_BOOT_VOLUME_TYPE }}
           OCI_AVAILABILITY_DOMAIN: ${{ secrets.OCI_AVAILABILITY_DOMAIN }}
           OCI_OCPUS: ${{ secrets.OCI_OCPUS }}
           OCI_MEMORY_IN_GBS: ${{ secrets.OCI_MEMORY_IN_GBS }}
