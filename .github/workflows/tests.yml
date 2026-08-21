@@ -34,7 +34,7 @@ jobs:
 
           export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
 
-          # 构造标准的 API REST Request Body
+          # 构造标准的 REST Payload
           cat << EOF > /tmp/launch_payload.json
           {
             "compartmentId": "${{ secrets.OCI_TENANCY_OCID }}",
@@ -57,8 +57,10 @@ jobs:
 
           echo "Sending raw REST Payload via OCI CLI..."
           
-          # 使用 --from-json 发送结构化 Body
-          oci compute instance launch --from-json file:///tmp/launch_payload.json > /tmp/oci_res.json 2>&1 || true
+          # 补充 --subnet-id 满足 CLI 客户端校验，同时通过 --from-json 发送完整配置
+          oci compute instance launch \
+            --subnet-id "${{ secrets.OCI_SUBNET_ID }}" \
+            --from-json file:///tmp/launch_payload.json > /tmp/oci_res.json 2>&1 || true
 
           # 解析运行结果
           if grep -q "Out of host capacity" /tmp/oci_res.json; then
